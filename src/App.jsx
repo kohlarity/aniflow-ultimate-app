@@ -9,6 +9,7 @@ import {
   BrainCircuit
 } from 'lucide-react';
 
+// --- 1. SYSTEM CORE ---
 const apiKey = "AIzaSyDvvH0xVF2yCPXFV6aQNefETt7uXSzf3hc"; 
 
 async function callGemini(history, systemOverride) {
@@ -38,7 +39,7 @@ class ErrorBoundary extends Component {
   }
 }
 
-// --- OPTIMIZED COMPONENTS ---
+// --- 2. OPTIMIZED COMPONENTS ---
 const Card = memo(({ children, className = "", styleConfig }) => (<div className={`${styleConfig.card} overflow-hidden shadow-xl transition-all duration-300 ${className}`}>{children}</div>));
 const Badge = memo(({ children, color = "blue", themeConfig }) => {
   let c = themeConfig.badge_blue;
@@ -48,13 +49,14 @@ const Badge = memo(({ children, color = "blue", themeConfig }) => {
   return (<span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wide ${c}`}>{children}</span>);
 });
 
-// --- MAIN APP ---
+// --- 3. MAIN APP ---
 function AniFlow() {
+  // State Initialization
   const [animeList, setAnimeList] = useState([]);
   const [history, setHistory] = useState([]);
   const [prefs, setPrefs] = useState({ theme: 'cosmic', hue: 250, scale: 1, sound: true, zen: false, spoiler: false, tilt: true, density: 'normal', view: 'grid', showNotes: false, customPrimary: '#818cf8', customBg: '#0a0a0f' });
   const [ui, setUi] = useState({ tab: 'watching', search: '', sort: 'updated', modal: null, batchMode: false, selected: [], privacy: false, quote: "Loading..." });
-  const [isLoaded, setIsLoaded] = useState(false); // DATA SAFETY FLAG
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const [editItem, setEditItem] = useState(null);
   const [toast, setToast] = useState(null);
@@ -83,32 +85,25 @@ function AniFlow() {
   const currentStyle = STYLES[prefs.style] || STYLES.glass;
   const primary = prefs.theme === 'custom' ? prefs.customPrimary : `hsl(${prefs.hue}, 70%, 60%)`;
 
-  // --- DATA LOADING (FIXED) ---
+  // Load Data (CLEAN START - No Akira)
   useEffect(() => {
-    const d = localStorage.getItem('af-data');
-    if (d) {
-       try { setAnimeList(JSON.parse(d)); } catch(e) { console.error("Data Corrupt"); }
-    } else {
-       // Only seed defaults if NO data exists
-       setAnimeList([{ id: 1, title: 'Akira', status: 'completed', currentEp: 1, totalEps: 1, rating: 10, studio: 'TMS', source: 'Manga', duration: 124, priority: 'High', tags: ['Sci-Fi', 'Classic'], addedAt: Date.now(), lastUpdated: Date.now() }]);
-    }
+    const d = localStorage.getItem('af-data'); 
+    if (d) { try { setAnimeList(JSON.parse(d)); } catch(e) { console.error("Data Corrupt"); } } 
+    else { setAnimeList([]); } // Empty start
     
     const h = localStorage.getItem('af-hist'); if (h) setHistory(JSON.parse(h) || []);
     const p = localStorage.getItem('af-prefs'); if (p) setPrefs({...prefs, ...JSON.parse(p)});
     
     callGemini([{role: 'user', text: 'Give me one short, inspiring anime quote. Format: "Quote" - Character'}], "You are a quote generator.").then(r => setUi(p => ({...p, quote: r})));
-    
-    setIsLoaded(true); // Safe to save now
+    setIsLoaded(true);
   }, []);
 
-  // --- PERSISTENCE (SAFEGUARDED) ---
-  useEffect(() => {
-    if (isLoaded) localStorage.setItem('af-data', JSON.stringify(animeList));
-  }, [animeList, isLoaded]);
-
+  // Persistence
+  useEffect(() => { if(isLoaded) localStorage.setItem('af-data', JSON.stringify(animeList)); }, [animeList, isLoaded]);
   useEffect(() => { if(isLoaded) localStorage.setItem('af-hist', JSON.stringify(history)); }, [history, isLoaded]);
   useEffect(() => { if(isLoaded) localStorage.setItem('af-prefs', JSON.stringify(prefs)); }, [prefs, isLoaded]);
 
+  // Shortcuts
   useEffect(() => {
     const k = (e) => { 
       if(e.ctrlKey && e.key === 'k') { e.preventDefault(); document.getElementById('search')?.focus(); }
@@ -427,8 +422,9 @@ function AniFlow() {
                  )}
                  <div className="grid grid-cols-2 gap-4">
                     <button onClick={()=>setPrefs(p=>({...p, sound:!p.sound}))} className={`p-3 rounded border flex justify-between items-center ${prefs.sound?'bg-indigo-900/30 border-indigo-500':'border-white/10'}`}><span>Sounds</span>{prefs.sound?<Volume2 size={16}/>:<VolumeX size={16}/>}</button>
-                    <button onClick={()=>{const h=JSON.stringify(animeList);const b=new Blob([h]);const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='backup.json';a.click()}} className="p-3 rounded border flex justify-between items-center border-white/10 hover:bg-white/5"><span>Backup Data</span><Download size={16}/></button>
+                    <button onClick={()=>setPrefs(p=>({...p, showNotes:!p.showNotes}))} className={`p-3 rounded border flex justify-between items-center ${prefs.showNotes?'bg-indigo-900/30 border-indigo-500':'border-white/10'}`}><span>Card Notes</span>{prefs.showNotes?<Eye size={16}/>:<EyeOff size={16}/>}</button>
                  </div>
+                 <div className="flex gap-2"><button onClick={()=>{const h=JSON.stringify(animeList);const b=new Blob([h]);const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='backup.json';a.click()}} className="p-3 rounded border flex justify-between items-center border-white/10 hover:bg-white/5"><span>Backup Data</span><Download size={16}/></button></div>
               </div>
            </div>
         </div>
