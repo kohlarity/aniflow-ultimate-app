@@ -17,7 +17,7 @@ import {
 } from 'firebase/auth';
 import { 
   getFirestore, collection, doc, setDoc, onSnapshot, 
-  deleteDoc 
+  deleteDoc, getDocs
 } from 'firebase/firestore';
 
 // --- 1. SYSTEM CONFIGURATION ---
@@ -189,6 +189,8 @@ function AniFlow() {
     if (useCloud && user) {
        try {
          updatedList.forEach(async (item) => {
+           // Firestore stores documents in collections. 
+           // If using Firebase's root store, path should be 'users/uid/animeList/id'
            await setDoc(doc(db, 'users', user.uid, 'animeList', String(item.id)), item);
          });
        } catch(e) { console.error("Cloud Save Error", e); }
@@ -205,6 +207,27 @@ function AniFlow() {
     }
   };
 
+  // --- DATA MIGRATION LOGIC (FIXED) ---
+  const migrateLocalDataToCloud = async (newUid) => {
+    if (!useCloud || !isLoaded || animeList.length === 0) return;
+    
+    // Check if the old local list has data that is not in the cloud yet
+    const localData = JSON.parse(localStorage.getItem('af-data')) || [];
+
+    if (localData.length > 0) {
+      showToast("Migrating local data to cloud...", 'success');
+      for (const item of localData) {
+        // Use setDoc to copy local item to new user's cloud collection
+        await setDoc(doc(db, 'users', newUid, 'animeList', String(item.id)), item);
+      }
+      // After successful upload, reload cloud data for the new user
+      const cloudSnap = await getDocs(collection(db, 'users', newUid, 'animeList'));
+      const cloudList = cloudSnap.docs.map(d => ({id: d.id, ...d.data()}));
+      setAnimeList(cloudList);
+      showToast("Migration complete! Data synced.", 'success');
+    }
+  };
+  
   // Initialize other prefs
   useEffect(() => {
     const h = localStorage.getItem('af-hist'); if (h) setHistory(JSON.parse(h) || []);
@@ -232,10 +255,12 @@ function AniFlow() {
     
     try {
       if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, email, password);
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        await migrateLocalDataToCloud(userCredential.user.uid); // MIGRATE DATA ON SIGNUP
         showToast("Account created! Welcome!", 'success');
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        // Data sync happens automatically via onSnapshot listener in useEffect
         showToast("Logged in successfully!", 'success');
       }
       setUi(p => ({...p, modal: null}));
@@ -464,7 +489,7 @@ function AniFlow() {
               <button onClick={handleAdd} className="flex items-center gap-2 px-4 py-1.5 rounded-lg font-bold text-sm shadow-lg transition-all active:scale-95" style={{background:primary,color:'white'}}><Plus size={16}/> Add</button>
               
               {/* AUTH BUTTONS */}
-              {user && <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} className="w-8 h-8 rounded-full border border-white/20 cursor-pointer" onClick={handleLogout}/>}
+              {user && <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} className="w-8 h-8 rounded-full border border-white/20 cursor-pointer" onClick={()=>setUi(p=>({...p, modal:'settings', settingsTab:'general'}))}/>}
               {useCloud && !user && <button onClick={()=>setUi(p=>({...p, modal:'auth'}))} className="p-2 bg-white/10 rounded-lg text-xs font-bold">Log In</button>}
             </div>
           </div>
@@ -588,6 +613,10 @@ function AniFlow() {
                          <div><label className="text-xs font-bold text-gray-500 uppercase">Source</label><select value={form.source} onChange={e=>setForm({...form,source:e.target.value})} className={`w-full px-4 py-2 ${currentStyle.input}`}><option>Original</option><option>Manga</option><option>Light Novel</option><option>Game</option></select></div>
                       </div>
                       <div>
+                         <label className="text-xs font-bold text-gray-500 uppercase flex justify-between">Tags (Comma Sep) <button type="button" onClick={handleAiTag} className="text-indigo-400 hover:text-white flex items-center gap-1 text-[10px]"><Sparkles size={10}/> Auto-Tag</button></label>
+                         <input value={form.tags} onChange={e=>setForm({...form,tags:e.target.value})} className={`w-full px-4 py-2 ${currentStyle.input}`}/>
+                      </div>
+                      <div>
                          <label className="text-xs font-bold text-gray-500 uppercase flex justify-between">Image URL <button type="button" onClick={autoImage} className="text-indigo-400 hover:text-white flex items-center gap-1 text-[10px]"><ImageIcon size={10}/> Auto-Find</button></label>
                          <input value={form.image} onChange={e=>setForm({...form,image:e.target.value})} className={`w-full px-4 py-2 ${currentStyle.input}`}/>
                       </div>
@@ -655,7 +684,8 @@ function AniFlow() {
                     <button onClick={()=>setPrefs(p=>({...p, showNotes:!p.showNotes}))} className={`p-3 rounded border flex justify-between items-center ${prefs.showNotes?'bg-indigo-900/30 border-indigo-500':'border-white/10'}`}><span>Card Notes</span>{prefs.showNotes?<Eye size={16}/>:<EyeOff size={16}/>}</button>
                  </div>
                  <div className="flex gap-2"><button onClick={()=>{const h=JSON.stringify(animeList);const b=new Blob([h]);const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='backup.json';a.click()}} className="p-3 rounded border flex justify-between items-center border-white/10 hover:bg-white/5 flex-1"><span>Backup Data</span><Download size={16}/></button></div>
-                 {user && <div className="text-xs text-gray-500 text-center">Logged in as {user.uid.slice(0,6)}...</div>}
+                 {user && <button onClick={handleLogout} className="p-3 rounded border flex justify-between items-center border-red-500/30 bg-red-900/20 text-red-300 hover:bg-red-900/40 flex-1"><span>Log Out</span><LogOut size={16}/></button>}
+                 {user && <div className="text-xs text-gray-500 text-center col-span-2">Logged in as {user.uid.slice(0,6)}...</div>}
               </div>
            </div>
         </div>
@@ -694,7 +724,7 @@ const AuthModal = ({ primary, authError, setAuthError, handleEmailAuth, handleAn
             </form>
 
             <div className="flex justify-between items-center text-xs">
-                <button onClick={() => setIsSignUp(p => !p)} className="text-indigo-400 hover:underline">
+                <button onClick={() => {setIsSignUp(p => !p); setAuthError('');}} className="text-indigo-400 hover:underline">
                     {isSignUp ? 'Already have an account? Log In' : 'Need an account? Sign Up'}
                 </button>
             </div>
