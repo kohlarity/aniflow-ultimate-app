@@ -23,8 +23,7 @@ import {
 // --- 1. SYSTEM CONFIGURATION ---
 const apiKey = "AIzaSyDvvH0xVF2yCPXFV6aQNefETt7uXSzf3hc"; 
 
-// 🔴 YOUR WEB APP'S FIREBASE CONFIGURATION
-// These keys enable cloud saving and account management.
+// 🔴 YOUR WEB APP'S FIREBASE CONFIGURATION (FOR CLOUD SAVE)
 const firebaseConfig = {
   apiKey: "AIzaSyDh_M3Tf2lM6WfTH8V6gc8n9OOoCulW34g",
   authDomain: "aniflow-8371c.firebaseapp.com",
@@ -35,11 +34,26 @@ const firebaseConfig = {
   measurementId: "G-Y1W0946297"
 };
 
+// --- ULTIMATE GENRE LIST (MOVED HERE TO FIX REFERENCE ERROR) ---
+const ULTIMATE_GENRES = [
+  'Action', 'Adventure', 'Comedy', 'Drama', 'Slice of Life', 'Fantasy', 'Sci-Fi', 'Romance', 
+  'Horror', 'Mystery', 'Thriller / Suspense', 'Psychological', 'Supernatural', 'Sports', 'Mecha', 
+  'Shounen', 'Shoujo', 'Seinen', 'Josei', 'Kodomo', // Demographics
+  'Isekai', 'Reverse Isekai', 'Post-Apocalyptic', 'Cyberpunk', 'Steampunk', 'Gothic', 'Historical', 
+  'Alternate History', 'Space / Space Opera', 'Military', // Worldbuilding
+  'Dark Fantasy', 'Tragedy', 'Wholesome', 'Feel-good', 'Gag / Parody', 'Surreal / Avant-garde', // Tone
+  'Superpower', 'Magical Girl (Mahou Shoujo)', 'Martial Arts', 'Music / Idol', 'School', 'Workplace', 
+  'Harem', 'Reverse Harem', 'Ecchi', 'Hentai', 'Gore / Splatter', 'Demons / Yokai', 'Vampire', 
+  'Game / VRMMO', 'Racing', 'Cooking / Food', 'Detective', 'Medical', 'Psychic / ESP', 'Time Travel', // Themes
+  'Chibi', 'Chuunibyou', 'Iyashikei', 'Kemono', 'CGI / 3D focus', // Style
+  'Anthology', 'Short-form anime', 'Episodic', 'Long-running / Shounen Jump style', // Structure
+  'Shounen-ai / Yaoi / BL', 'Shoujo-ai / Yuri / GL', 'Doujin / Fan-anime vibes' // Fandom
+];
+
 // --- FIREBASE INITIALIZATION (SAFE MODE) ---
 let app, auth, db;
 let useCloud = false;
 
-// Only initialize if config is present and we are running in a proper environment
 if (firebaseConfig.apiKey && firebaseConfig.projectId) {
   try {
     app = initializeApp(firebaseConfig);
@@ -108,7 +122,7 @@ function AniFlow() {
   const [chatInput, setChatInput] = useState('');
   const [aiLoad, setAiLoad] = useState(false);
   const [genreResults, setGenreResults] = useState([]); 
-  const [selectedGenre, setSelectedGenre] = useState('Action');
+  const [selectedGenre, setSelectedGenre] = useState(ULTIMATE_GENRES[0]);
   const [vibeResult, setVibeResult] = useState(null);
   const chatEndRef = useRef(null);
 
@@ -137,6 +151,11 @@ function AniFlow() {
         setUser(u);
         if (u) showToast(`Logged in as ${u.isAnonymous ? 'Guest' : 'User'}`, 'success');
       });
+      // We manually sign in anonymously if no user is found after init, 
+      // ensuring we always have a user ID for Firestore security rules.
+      if (!auth.currentUser) {
+          signInAnonymously(auth).catch(e => console.error("Anonymous sign in failed:", e));
+      }
       return () => unsub();
     }
   }, []);
@@ -207,6 +226,21 @@ function AniFlow() {
     };
     window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
   }, []);
+
+  const handleLoginClick = async () => {
+    if (!useCloud) {
+        return showToast("Cloud Save is disabled. Add Firebase keys in App.jsx.", 'error');
+    }
+    // Manually trigger anonymous sign-in
+    try {
+        await signInAnonymously(auth);
+        showToast("Signed in as Guest! Data now syncing to cloud.", 'success');
+    } catch (error) {
+        console.error("Manual Sign In Failed:", error);
+        showToast("Login Failed. Check console for details.", 'error');
+    }
+  };
+
 
   const showToast = (msg, type='success') => { setToast({msg, type}); setTimeout(()=>setToast(null), 3000); playSound(type==='success'?'success':'click'); };
   const log = (act) => setHistory(prev => [{t: act, d: new Date().toISOString()}, ...prev].slice(0, 100));
@@ -411,7 +445,7 @@ function AniFlow() {
               <button onClick={()=>setUi(p=>({...p, modal:'ai'}))} className="p-2 hover:bg-white/5 rounded-lg text-indigo-400" title="AI Lab"><Bot size={18}/></button>
               <button onClick={()=>setUi(p=>({...p, modal:'settings'}))} className="p-2 hover:bg-white/5 rounded-lg"><Settings size={18}/></button>
               <button onClick={handleAdd} className="flex items-center gap-2 px-4 py-1.5 rounded-lg font-bold text-sm shadow-lg transition-all active:scale-95" style={{background:primary,color:'white'}}><Plus size={16}/> Add</button>
-              {useCloud && !user && <button onClick={()=>signInAnonymously(auth)} className="p-2 bg-white/10 rounded-lg text-xs font-bold">Log In</button>}
+              {useCloud && !user && <button onClick={handleLoginClick} className="p-2 bg-white/10 rounded-lg text-xs font-bold">Log In</button>}
               {useCloud && user && <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} className="w-8 h-8 rounded-full border border-white/20 cursor-pointer" onClick={()=>signOut(auth)}/>}
             </div>
           </div>
@@ -493,7 +527,7 @@ function AniFlow() {
                <div className="p-6 border-b border-white/10 flex gap-4 items-center">
                   <h2 className="text-xl font-bold flex items-center gap-2"><Globe className="text-pink-400"/> Genre Explorer</h2>
                   <select className="bg-black/20 border border-white/10 rounded-lg p-2 text-sm" value={selectedGenre} onChange={e=>setSelectedGenre(e.target.value)}>
-                     {['Action','Romance','Sci-Fi','Fantasy','Slice of Life','Horror','Comedy','Sports'].map(g=><option key={g} value={g}>{g}</option>)}
+                     {ULTIMATE_GENRES.map(g=><option key={g} value={g}>{g}</option>)}
                   </select>
                   <button onClick={()=>fetchGenre(true)} disabled={aiLoad} className="p-2 bg-pink-600/20 text-pink-400 rounded-lg hover:bg-pink-600/40"><RefreshCw size={18} className={aiLoad?'animate-spin':''}/></button>
                </div>
@@ -542,7 +576,7 @@ function AniFlow() {
                    </div>
                 </div>
                 <div className="pt-4 border-t border-white/10 flex justify-between items-center">
-                   <div className="flex items-center gap-4"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.favorite} onChange={e=>setForm({...form,favorite:e.target.checked})} className="w-4 h-4 accent-pink-500"/> Fav</label>{editItem && <button type="button" onClick={deleteAnime} className="text-red-400 hover:text-red-300 text-sm font-bold flex items-center gap-1"><Trash2 size={14}/> Delete</button>}</div>
+                   <div className="flex items-center gap-4"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.favorite} onChange={e=>setForm({...form,favorite:e.target.checked})} className="w-4 h-4 accent-pink-500"/> Fav</label>{editItem && <button type="button" onClick={handleDelete} className="text-red-400 hover:text-red-300 text-sm font-bold flex items-center gap-1"><Trash2 size={14}/> Delete</button>}</div>
                    <button type="submit" className="px-8 py-2 rounded-lg font-bold text-white shadow-lg" style={{background:primary}}>Save</button>
                 </div>
              </form>
