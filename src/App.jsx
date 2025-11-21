@@ -13,7 +13,7 @@ import {
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, signInAnonymously, signInWithPopup, GoogleAuthProvider, 
-  signOut, onAuthStateChanged 
+  signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword
 } from 'firebase/auth';
 import { 
   getFirestore, collection, doc, setDoc, onSnapshot, 
@@ -34,7 +34,7 @@ const firebaseConfig = {
   measurementId: "G-Y1W0946297"
 };
 
-// --- ULTIMATE GENRE LIST (MOVED HERE TO FIX REFERENCE ERROR) ---
+// --- ULTIMATE GENRE LIST ---
 const ULTIMATE_GENRES = [
   'Action', 'Adventure', 'Comedy', 'Drama', 'Slice of Life', 'Fantasy', 'Sci-Fi', 'Romance', 
   'Horror', 'Mystery', 'Thriller / Suspense', 'Psychological', 'Supernatural', 'Sports', 'Mecha', 
@@ -113,6 +113,7 @@ function AniFlow() {
   // UI State
   const [ui, setUi] = useState({ tab: 'watching', search: '', sort: 'updated', modal: null, batchMode: false, selected: [], privacy: false, quote: "Loading...", settingsTab: 'general' });
   const [isLoaded, setIsLoaded] = useState(false);
+  const [authError, setAuthError] = useState('');
   
   // Feature State
   const [editItem, setEditItem] = useState(null);
@@ -151,8 +152,7 @@ function AniFlow() {
         setUser(u);
         if (u) showToast(`Logged in as ${u.isAnonymous ? 'Guest' : 'User'}`, 'success');
       });
-      // We manually sign in anonymously if no user is found after init, 
-      // ensuring we always have a user ID for Firestore security rules.
+      // Try to sign in anonymously if no user is found after init (ensures a UID for Firestore)
       if (!auth.currentUser) {
           signInAnonymously(auth).catch(e => console.error("Anonymous sign in failed:", e));
       }
@@ -189,8 +189,6 @@ function AniFlow() {
     if (useCloud && user) {
        try {
          updatedList.forEach(async (item) => {
-           // Firestore stores documents in collections. 
-           // If using Firebase's root store, path should be 'users/uid/animeList/id'
            await setDoc(doc(db, 'users', user.uid, 'animeList', String(item.id)), item);
          });
        } catch(e) { console.error("Cloud Save Error", e); }
@@ -227,19 +225,38 @@ function AniFlow() {
     window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
   }, []);
 
-  const handleLoginClick = async () => {
-    if (!useCloud) {
-        return showToast("Cloud Save is disabled. Add Firebase keys in App.jsx.", 'error');
+  // --- AUTH HANDLERS ---
+  const handleEmailAuth = async (isSignUp, email, password) => {
+    setAuthError('');
+    if (!useCloud) return setAuthError("Cloud Save disabled. Please configure Firebase keys.");
+    
+    try {
+      if (isSignUp) {
+        await createUserWithEmailAndPassword(auth, email, password);
+        showToast("Account created! Welcome!", 'success');
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+        showToast("Logged in successfully!", 'success');
+      }
+      setUi(p => ({...p, modal: null}));
+    } catch (error) {
+      setAuthError(error.message.split('(auth/')[1]?.replace(').', '') || 'Authentication Failed');
     }
-    // Manually trigger anonymous sign-in
+  };
+
+  const handleAnonAuth = async () => {
+    if (!useCloud) return showToast("Cloud Save is disabled. Add Firebase keys in App.jsx.", 'error');
     try {
         await signInAnonymously(auth);
         showToast("Signed in as Guest! Data now syncing to cloud.", 'success');
+        setUi(p => ({...p, modal: null}));
     } catch (error) {
-        console.error("Manual Sign In Failed:", error);
+        setAuthError(error.message);
         showToast("Login Failed. Check console for details.", 'error');
     }
   };
+  
+  const handleLogout = () => signOut(auth);
 
 
   const showToast = (msg, type='success') => { setToast({msg, type}); setTimeout(()=>setToast(null), 3000); playSound(type==='success'?'success':'click'); };
@@ -445,8 +462,10 @@ function AniFlow() {
               <button onClick={()=>setUi(p=>({...p, modal:'ai'}))} className="p-2 hover:bg-white/5 rounded-lg text-indigo-400" title="AI Lab"><Bot size={18}/></button>
               <button onClick={()=>setUi(p=>({...p, modal:'settings'}))} className="p-2 hover:bg-white/5 rounded-lg"><Settings size={18}/></button>
               <button onClick={handleAdd} className="flex items-center gap-2 px-4 py-1.5 rounded-lg font-bold text-sm shadow-lg transition-all active:scale-95" style={{background:primary,color:'white'}}><Plus size={16}/> Add</button>
-              {useCloud && !user && <button onClick={handleLoginClick} className="p-2 bg-white/10 rounded-lg text-xs font-bold">Log In</button>}
-              {useCloud && user && <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} className="w-8 h-8 rounded-full border border-white/20 cursor-pointer" onClick={()=>signOut(auth)}/>}
+              
+              {/* AUTH BUTTONS */}
+              {user && <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} className="w-8 h-8 rounded-full border border-white/20 cursor-pointer" onClick={handleLogout}/>}
+              {useCloud && !user && <button onClick={()=>setUi(p=>({...p, modal:'auth'}))} className="p-2 bg-white/10 rounded-lg text-xs font-bold">Log In</button>}
             </div>
           </div>
         </nav>
@@ -610,6 +629,13 @@ function AniFlow() {
         </div>
       )}
 
+      {/* --- AUTH MODAL --- */}
+      {ui.modal === 'auth' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <AuthModal primary={primary} authError={authError} setAuthError={setAuthError} handleEmailAuth={handleEmailAuth} handleAnonAuth={handleAnonAuth} closeModal={()=>setUi(p=>({...p, modal:null}))} />
+        </div>
+      )}
+
       {/* --- SETTINGS --- */}
       {ui.modal === 'settings' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
@@ -637,5 +663,50 @@ function AniFlow() {
     </div>
   );
 }
+
+// --- AUTH MODAL COMPONENT ---
+const AuthModal = ({ primary, authError, setAuthError, handleEmailAuth, handleAnonAuth, closeModal }) => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [isSignUp, setIsSignUp] = useState(false);
+    
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        handleEmailAuth(isSignUp, email, password);
+    };
+
+    return (
+        <div className="glass-panel w-full max-w-sm p-6 rounded-2xl shadow-2xl space-y-4">
+            <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold">{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
+                <button onClick={closeModal}><XCircle size={24} /></button>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" required className="w-full p-3 rounded-lg" />
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required className="w-full p-3 rounded-lg" />
+                
+                {authError && <p className="text-red-400 text-xs mt-2 p-2 bg-red-900/30 rounded">{authError}</p>}
+
+                <button type="submit" className="w-full py-3 rounded-lg font-bold text-white" style={{ background: primary }}>
+                    {isSignUp ? 'Sign Up' : 'Log In'}
+                </button>
+            </form>
+
+            <div className="flex justify-between items-center text-xs">
+                <button onClick={() => setIsSignUp(p => !p)} className="text-indigo-400 hover:underline">
+                    {isSignUp ? 'Already have an account? Log In' : 'Need an account? Sign Up'}
+                </button>
+            </div>
+            
+            <div className="flex items-center my-3"><div className="flex-1 h-px bg-white/10"></div><span className="px-2 text-xs text-gray-500">OR</span><div className="flex-1 h-px bg-white/10"></div></div>
+
+            <button onClick={handleAnonAuth} className="w-full py-3 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-bold flex items-center justify-center gap-2">
+                <Unlock size={18} /> Continue as Guest
+            </button>
+        </div>
+    );
+};
+
 
 export default function AppWithBoundary() { return <ErrorBoundary><AniFlow /></ErrorBoundary>; }
